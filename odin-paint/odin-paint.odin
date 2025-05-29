@@ -57,6 +57,7 @@ main :: proc() {
 	}
 	screen_elems := []u32{0, 1, 2, 1, 2, 3}
 	texture := make([]u8, TEXTURE_WIDTH * TEXTURE_HEIGHT * 3)
+	defer delete(texture)
 
 	// Program creation
 	program, paint_program: u32
@@ -148,11 +149,11 @@ main :: proc() {
 
 	// Framebuffers for writing to textures
 	fbo0, fbo1: u32
-	gl.GenFramebuffers(1, &fbo0); defer gl.DeleteFramebuffers(1, &fbo0)
+	gl.GenFramebuffers(1, &fbo0);defer gl.DeleteFramebuffers(1, &fbo0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo0)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, canvas0, 0)
 
-	gl.GenFramebuffers(1, &fbo1); defer gl.DeleteFramebuffers(1, &fbo1)
+	gl.GenFramebuffers(1, &fbo1);defer gl.DeleteFramebuffers(1, &fbo1)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo1)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, canvas1, 0)
 
@@ -255,6 +256,7 @@ main :: proc() {
 			painting = false
 		}
 
+		gl.Viewport(0, 0, TEXTURE_WIDTH, TEXTURE_HEIGHT)
 		gl.ClearColor(0.4, 0.4, 0.4, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
