@@ -1,48 +1,97 @@
 package MyGl
 
+import "core:fmt"
 import glm "core:math/linalg/glsl"
 import gl "vendor:OpenGL"
-//import SDL "vendor:sdl2"
+import "core:strings"
+import "core:slice"
 
 Vertex :: struct {
 	pos: [3]f32,
 	tex: [2]f32,
 }
 
-Texture :: struct {
-	texture: u32,
-	fbo:     u32,
-}
-
 Geometry :: struct {
-	vao: u32,
-	vbo: u32,
-	ebo: u32,
+	vao:  u32,
+	vbo:  u32,
+	ebo:  u32,
+	mode: u32, // Unused for now
 }
 
-TextureDesc :: struct {
-	wrap:   i32,
-	filter: i32,
+Texture :: struct {
+	id:             u32,
+	width:          i32,
+	height:         i32,
+	internalformat: u32,
 }
 
-CreateTexture :: proc(
+createTexture :: proc(
 	width, height: i32,
-	data: []u8 = nil,
-	desc: TextureDesc = TextureDesc{gl.REPEAT, gl.NEAREST},
+	internalformat: u32 = gl.RGBA8,
+	wrap: i32 = gl.REPEAT,
+	filter: i32 = gl.NEAREST,
 ) -> (
-	texture: u32,
+	texture: Texture,
 ) {
-	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture)
+	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.id)
 
-	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_S, desc.wrap)
-	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_T, desc.wrap)
-	gl.TextureParameteri(texture, gl.TEXTURE_MIN_FILTER, desc.filter)
-	gl.TextureParameteri(texture, gl.TEXTURE_MAG_FILTER, desc.filter)
+	gl.TextureParameteri(texture.id, gl.TEXTURE_WRAP_S, wrap)
+	gl.TextureParameteri(texture.id, gl.TEXTURE_WRAP_T, wrap)
+	gl.TextureParameteri(texture.id, gl.TEXTURE_MIN_FILTER, filter)
+	gl.TextureParameteri(texture.id, gl.TEXTURE_MAG_FILTER, filter)
 
-	gl.TextureStorage2D(texture, 1, gl.RGBA8, width, height)
+	gl.TextureStorage2D(texture.id, 1, internalformat, width, height)
+
+	texture.internalformat = internalformat
+	texture.width = width
+	texture.height = height
+	return texture
+}
+
+writeTexture :: proc(texture: Texture, data: []$T, components: u32, width, height: i32) {
+	format, type: u32
+
+	switch typeid_of(T) {
+	case u8:
+		type = gl.UNSIGNED_BYTE
+	case u16:
+		type = gl.UNSIGNED_SHORT
+	case u32:
+		type = gl.UNSIGNED_INT
+	case i8:
+		type = gl.BYTE
+	case i16:
+		type = gl.SHORT
+	case i32:
+		type = gl.INT
+	case f16:
+		type = gl.HALF_FLOAT
+	case f32:
+		type = gl.FLOAT
+	case f64:
+		type = gl.DOUBLE
+	case:
+		fmt.eprintln("ERROR: Tipo de dato inválido")
+		return
+	}
+
+	switch components {
+	case 1:
+		format = gl.RED
+	case 2:
+		format = gl.RG
+	case 3:
+		format = gl.RGB
+	case 4:
+		format = gl.RGBA
+	case:
+		fmt.eprintln("ERROR: Numero de componentes inválido")
+		return
+	}
+
 	if data != nil {
 		gl.TextureSubImage2D(
-			texture,
+			texture.id,
 			0,
 			0,
 			0,
@@ -53,10 +102,64 @@ CreateTexture :: proc(
 			raw_data(data),
 		)
 	}
-	return texture
 }
 
-CreateQuadFS :: proc() -> (quad: Geometry) {
+BufferDescriptor :: struct {
+	vbo: u32,
+}
+
+Program :: struct {
+	id:  u32,
+	vao: u32,
+}
+
+createBuffer :: proc(data: []$T, usage: u32 = gl.STATIC_DRAW) -> (vbo: u32) {
+	gl.CreateBuffers(1, &vbo)
+	gl.NamedBufferData(
+		vbo,
+		size_of(data[0]) * len(data),
+		raw_data(slice.to_bytes(data)),
+		usage,
+	)
+	return vbo
+}
+
+bindAttributes :: proc(program: Program, vbo: u32, attributes: []struct {
+		type: u32,
+		amount: i32,
+		name: string,
+	}) -> (ok: bool) {
+
+	offset: i32 = 0
+	for attribute, index in attributes {
+		attribName: cstring = strings.clone_to_cstring(attribute.name)
+		attribLocation := gl.GetAttribLocation(program.id, attribName)
+
+		if attribLocation == -1 {
+			fmt.eprintln("ERROR: atributo no encontrado")
+			return false
+		}
+		gl.EnableVertexArrayAttrib(program.vao, u32(index))
+		gl.VertexArrayAttribBinding(program.vao, u32(attribLocation), 0)
+
+		typeSize, ok := getTypeSize(attribute.type)
+		gl.VertexArrayAttribFormat(
+			program.vao,
+			u32(attribLocation),
+			attribute.amount,
+			attribute.type,
+			false,
+			u32(offset * typeSize)
+		)
+		offset += attribute.amount
+	}
+	typeSize, okay := getTypeSize(attributes[0].type)
+	gl.VertexArrayVertexBuffer(program.vao, 0, vbo, 0, offset * typeSize)
+	return true
+}
+
+
+createQuadFS :: proc() -> (quad: Geometry) {
 	screen_vert := []Vertex {
 		{{-1, 1, 0}, {0, 1}},
 		{{-1, -1, 0}, {0, 0}},
@@ -96,7 +199,7 @@ CreateQuadFS :: proc() -> (quad: Geometry) {
 	return quad
 }
 
-DeleteGeometry :: proc(quad: ^Geometry) {
+deleteGeometry :: proc(quad: ^Geometry) {
 	gl.DeleteVertexArrays(1, &(quad.vao))
 	gl.DeleteBuffers(1, &(quad.vbo))
 	gl.DeleteBuffers(1, &(quad.ebo))
