@@ -39,34 +39,25 @@ main :: proc() {
 	}
 	defer gl.DeleteProgram(pid)
 
-	// attrib := strings.clone_to_cstring("tex_coord")
-	// fmt.println(gl.GetAttribLocation(program, attrib))
-	// delete(attrib)
-
 	// uniforms := gl.get_uniforms_from_program(program)
 	// defer delete(uniforms)
 
 	// screen: myGl.Geometry = myGl.createQuadFS()
 	// defer myGl.deleteGeometry(&screen)
 
-	program: myGl.Program = {id = pid}
-	gl.CreateVertexArrays(1, &program.vao)
-	
-	screen_vert := []myGl.Vertex {
-		{{-1, 1, 0}, {0, 1}},
-		{{-1, -1, 0}, {0, 0}},
-		{{1, 1, 0}, {1, 1}},
-		{{1, -1, 0}, {1, 0}},
-	}
-	vbo : u32 = myGl.createBuffer(screen_vert)
-	fmt.println("Buffer Creado")
-	myGl.bindAttributes(program, vbo, {{gl.FLOAT, 3, "vert_position"}, {gl.FLOAT, 2, "tex_coord"}})
-	fmt.println("Binding hecho")
+	emptyVao: u32
+	gl.GenVertexArrays(1, &emptyVao)
+
+	geo := myGl.createQuadFS()
+	geo.program = pid
+	defer myGl.deleteGeometry(&geo)
 
 	data := []u8{255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255}
 	texture: myGl.Texture = myGl.createTexture(2, 2)
 	myGl.writeTexture(texture, data, 4, 2, 2)
 	defer gl.DeleteTextures(1, &texture.id)
+
+	geo.texture = texture
 
 	loop: for {
 		event: sdl.Event
@@ -82,12 +73,11 @@ main :: proc() {
 		gl.ClearColor(0.5, 0.5, 0.5, 1.)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
+		// empty vao to avoid no rendering
+		gl.BindVertexArray(emptyVao)
+
 		// Draw
-		gl.UseProgram(program.id)
-		gl.BindVertexArray(program.vao)
-		gl.BindTextureUnit(0, texture.id)
-		//gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil)
-		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+		myGl.drawGeometry(geo)
 
 		sdl.GL_SwapWindow(window)
 	}
@@ -96,7 +86,7 @@ main :: proc() {
 // layout(location=0)
 // layout(location=1)
 
-vertex_shader: string = `
+vertex_shader2: string = `
 #version 460 core
 
 in vec3 vert_position;
@@ -110,6 +100,40 @@ void main() {
 }
 `
 
+vertex_shader: string = `
+#version 460 core
+
+struct VertexData {
+	float position[3];
+	float uv[2];
+};
+
+layout(binding = 0, std430) readonly buffer ssbo1 {
+	VertexData data[];
+};
+
+out vec2 uvs;
+
+vec3 getPosition(int index) {
+    return vec3(
+        data[index].position[0], 
+        data[index].position[1], 
+        data[index].position[2]
+    );
+}
+
+vec2 getUV(int index) {
+    return vec2(
+        data[index].uv[0], 
+        data[index].uv[1]
+    );
+}
+
+void main() {
+    uvs = getUV(gl_VertexID);
+    gl_Position = vec4(getPosition(gl_VertexID), 1.0);
+}
+`
 
 frag_shader: string = `
 #version 460 core

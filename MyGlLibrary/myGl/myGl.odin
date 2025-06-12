@@ -12,10 +12,11 @@ Vertex :: struct {
 }
 
 Geometry :: struct {
-	vao:  u32,
-	vbo:  u32,
-	ebo:  u32,
-	mode: u32, // Unused for now
+	ssbo: 		u32,
+	amount: 	i32,
+	mode: 		u32,
+	program: 	u32,
+	texture: 	Texture,
 }
 
 Texture :: struct {
@@ -104,15 +105,6 @@ writeTexture :: proc(texture: Texture, data: []$T, components: u32, width, heigh
 	}
 }
 
-BufferDescriptor :: struct {
-	vbo: u32,
-}
-
-Program :: struct {
-	id:  u32,
-	vao: u32,
-}
-
 createBuffer :: proc(data: []$T, usage: u32 = gl.STATIC_DRAW) -> (vbo: u32) {
 	gl.CreateBuffers(1, &vbo)
 	gl.NamedBufferData(
@@ -124,6 +116,12 @@ createBuffer :: proc(data: []$T, usage: u32 = gl.STATIC_DRAW) -> (vbo: u32) {
 	return vbo
 }
 
+
+Program :: struct {
+	id: u32,
+	vao: u32
+}
+
 bindAttributes :: proc(program: Program, vbo: u32, attributes: []struct {
 		type: u32,
 		amount: i32,
@@ -133,6 +131,7 @@ bindAttributes :: proc(program: Program, vbo: u32, attributes: []struct {
 	offset: i32 = 0
 	for attribute, index in attributes {
 		attribName: cstring = strings.clone_to_cstring(attribute.name)
+		defer delete(attribName)
 		attribLocation := gl.GetAttribLocation(program.id, attribName)
 
 		if attribLocation == -1 {
@@ -159,48 +158,79 @@ bindAttributes :: proc(program: Program, vbo: u32, attributes: []struct {
 }
 
 
-createQuadFS :: proc() -> (quad: Geometry) {
+// createQuadFS :: proc() -> (quad: Geometry) {
+// 	screen_vert := []Vertex {
+// 		{{-1, 1, 0}, {0, 1}},
+// 		{{-1, -1, 0}, {0, 0}},
+// 		{{1, 1, 0}, {1, 1}},
+// 		{{1, -1, 0}, {1, 0}},
+// 	}
+// 	screen_elems := []u32{0, 1, 2, 1, 2, 3}
+
+// 	gl.CreateVertexArrays(1, &quad.vao)
+// 	gl.CreateBuffers(1, &quad.vbo)
+// 	gl.CreateBuffers(1, &quad.ebo)
+
+// 	gl.NamedBufferData(
+// 		quad.vbo,
+// 		size_of(screen_vert[0]) * len(screen_vert),
+// 		raw_data(screen_vert),
+// 		gl.STATIC_DRAW,
+// 	)
+// 	gl.NamedBufferData(
+// 		quad.ebo,
+// 		size_of(screen_elems[0]) * len(screen_elems),
+// 		raw_data(screen_elems),
+// 		gl.STATIC_DRAW,
+// 	)
+
+// 	gl.EnableVertexArrayAttrib(quad.vao, 0)
+// 	gl.VertexArrayAttribBinding(quad.vao, 0, 0)
+// 	gl.VertexArrayAttribFormat(quad.vao, 0, 3, gl.FLOAT, false, 0)
+
+// 	gl.EnableVertexArrayAttrib(quad.vao, 1)
+// 	gl.VertexArrayAttribBinding(quad.vao, 1, 0)
+// 	gl.VertexArrayAttribFormat(quad.vao, 1, 2, gl.FLOAT, false, 3 * size_of(f32))
+
+// 	gl.VertexArrayVertexBuffer(quad.vao, 0, quad.vbo, 0, 5 * size_of(f32))
+// 	gl.VertexArrayElementBuffer(quad.vao, quad.ebo)
+
+// 	return quad
+// }
+
+createGeometry :: proc(data: []$T, usage: u32 = gl.DYNAMIC_STORAGE_BIT) -> (geo: Geometry) {
+	ssbo: u32
+	gl.CreateBuffers(1, &ssbo)
+	gl.NamedBufferStorage(
+		ssbo,
+		size_of(data[0]) * len(data),
+		raw_data(data),
+		usage,
+	)
+	geo.mode = gl.TRIANGLE_STRIP
+	geo.ssbo = ssbo
+	geo.amount = i32(len(data))
+	return geo
+}
+
+drawGeometry :: proc(geo: Geometry) {
+	gl.UseProgram(geo.program)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, geo.ssbo)
+	gl.BindTextureUnit(0, geo.texture.id)
+	gl.DrawArrays(geo.mode, 0, geo.amount)
+}
+
+deleteGeometry :: proc(geo: ^Geometry) {
+	gl.DeleteBuffers(1, &(geo.ssbo))
+	geo^ = {}
+}
+
+createQuadFS :: proc() -> (geo: Geometry) {
 	screen_vert := []Vertex {
 		{{-1, 1, 0}, {0, 1}},
 		{{-1, -1, 0}, {0, 0}},
 		{{1, 1, 0}, {1, 1}},
 		{{1, -1, 0}, {1, 0}},
 	}
-	screen_elems := []u32{0, 1, 2, 1, 2, 3}
-
-	gl.CreateVertexArrays(1, &quad.vao)
-	gl.CreateBuffers(1, &quad.vbo)
-	gl.CreateBuffers(1, &quad.ebo)
-
-	gl.NamedBufferData(
-		quad.vbo,
-		size_of(screen_vert[0]) * len(screen_vert),
-		raw_data(screen_vert),
-		gl.STATIC_DRAW,
-	)
-	gl.NamedBufferData(
-		quad.ebo,
-		size_of(screen_elems[0]) * len(screen_elems),
-		raw_data(screen_elems),
-		gl.STATIC_DRAW,
-	)
-
-	gl.EnableVertexArrayAttrib(quad.vao, 0)
-	gl.VertexArrayAttribBinding(quad.vao, 0, 0)
-	gl.VertexArrayAttribFormat(quad.vao, 0, 3, gl.FLOAT, false, 0)
-
-	gl.EnableVertexArrayAttrib(quad.vao, 1)
-	gl.VertexArrayAttribBinding(quad.vao, 1, 0)
-	gl.VertexArrayAttribFormat(quad.vao, 1, 2, gl.FLOAT, false, 3 * size_of(f32))
-
-	gl.VertexArrayVertexBuffer(quad.vao, 0, quad.vbo, 0, 5 * size_of(f32))
-	gl.VertexArrayElementBuffer(quad.vao, quad.ebo)
-
-	return quad
-}
-
-deleteGeometry :: proc(quad: ^Geometry) {
-	gl.DeleteVertexArrays(1, &(quad.vao))
-	gl.DeleteBuffers(1, &(quad.vbo))
-	gl.DeleteBuffers(1, &(quad.ebo))
+	return createGeometry(screen_vert)
 }
