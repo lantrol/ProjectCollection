@@ -11,6 +11,22 @@ Vertex :: struct {
 	tex: [2]f32,
 }
 
+Mesh :: struct {
+	ssbo: 		u32,
+	vertAmount: i32
+}
+
+Material :: struct {
+	shader: 	u32,
+	texture: 	Texture,
+}
+
+Renderable :: struct {
+	mesh: 		Mesh,
+	material: 	Material,
+	mode: 		u32
+}
+
 Geometry :: struct {
 	ssbo: 		u32,
 	amount: 	i32,
@@ -26,7 +42,7 @@ Texture :: struct {
 	internalformat: u32,
 }
 
-createTexture :: proc(
+createTexture2D :: proc(
 	width, height: i32,
 	internalformat: u32 = gl.RGBA8,
 	wrap: i32 = gl.REPEAT,
@@ -49,7 +65,7 @@ createTexture :: proc(
 	return texture
 }
 
-writeTexture :: proc(texture: Texture, data: []$T, components: u32, width, height: i32) {
+writeTexture2D :: proc(texture: Texture, data: []$T, components: u32, width, height: i32) {
 	format, type: u32
 
 	switch typeid_of(T) {
@@ -98,8 +114,8 @@ writeTexture :: proc(texture: Texture, data: []$T, components: u32, width, heigh
 			0,
 			width,
 			height,
-			gl.RGBA,
-			gl.UNSIGNED_BYTE,
+			format,
+			type,
 			raw_data(data),
 		)
 	}
@@ -198,7 +214,7 @@ bindAttributes :: proc(program: Program, vbo: u32, attributes: []struct {
 // 	return quad
 // }
 
-createGeometry :: proc(data: []$T, usage: u32 = gl.DYNAMIC_STORAGE_BIT) -> (geo: Geometry) {
+createMesh :: proc(data: []$T, usage: u32 = gl.DYNAMIC_STORAGE_BIT) -> (mesh: Mesh) {
 	ssbo: u32
 	gl.CreateBuffers(1, &ssbo)
 	gl.NamedBufferStorage(
@@ -207,30 +223,62 @@ createGeometry :: proc(data: []$T, usage: u32 = gl.DYNAMIC_STORAGE_BIT) -> (geo:
 		raw_data(data),
 		usage,
 	)
-	geo.mode = gl.TRIANGLE_STRIP
-	geo.ssbo = ssbo
-	geo.amount = i32(len(data))
-	return geo
+	mesh.ssbo = ssbo
+	mesh.vertAmount = i32(len(data))
+	return mesh
 }
 
-drawGeometry :: proc(geo: Geometry) {
-	gl.UseProgram(geo.program)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, geo.ssbo)
-	gl.BindTextureUnit(0, geo.texture.id)
-	gl.DrawArrays(geo.mode, 0, geo.amount)
+deleteMesh :: proc(mesh: ^Mesh) {
+	gl.DeleteBuffers(1, &(mesh.ssbo))
+	mesh^ = {0, 0}
 }
 
-deleteGeometry :: proc(geo: ^Geometry) {
-	gl.DeleteBuffers(1, &(geo.ssbo))
-	geo^ = {}
+render :: proc(rend: Renderable) {
+	gl.UseProgram(rend.material.shader)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, rend.mesh.ssbo)
+	gl.BindTextureUnit(0, rend.material.texture.id)
+	gl.DrawArrays(rend.mode, 0, rend.mesh.vertAmount)
 }
 
-createQuadFS :: proc() -> (geo: Geometry) {
+renderMesh :: proc(mesh: Mesh, shader: u32, texture: Texture) {
+	gl.UseProgram(shader)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, mesh.ssbo)
+	gl.BindTextureUnit(0, texture.id)
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, mesh.vertAmount)
+}
+
+createQuadFS :: proc() -> (mesh: Mesh) {
 	screen_vert := []Vertex {
 		{{-1, 1, 0}, {0, 1}},
 		{{-1, -1, 0}, {0, 0}},
 		{{1, 1, 0}, {1, 1}},
 		{{1, -1, 0}, {1, 0}},
 	}
-	return createGeometry(screen_vert)
+	mesh = createMesh(screen_vert)
+	// rend.mesh = mesh
+	// rend.mode = gl.TRIANGLE_STRIP
+	return mesh
+}
+
+createRenderable :: proc{createRenderableMeshMaterial, createRenderableMeshShaderTexture}
+
+createRenderableMeshMaterial :: proc(mesh: Mesh, material: Material, mode: u32 = gl.TRIANGLE_STRIP) -> Renderable {
+	rend: Renderable
+	rend.mesh = mesh
+	rend.material = material
+	rend.mode = gl.TRIANGLE_STRIP
+	return rend
+}
+
+createRenderableMeshShaderTexture :: proc(mesh: Mesh, shader: u32, texture: Texture, mode: u32 = gl.TRIANGLE_STRIP) -> Renderable {
+	material: Material
+	material.shader = shader
+	material.texture = texture
+
+	rend: Renderable
+	rend.mesh = mesh
+	rend.material = material
+	rend.mode = mode
+
+	return rend
 }
